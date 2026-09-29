@@ -2,8 +2,10 @@ package com.learning;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.UUID;
 
 public class Transaction {
+    private final UUID id;
     private final String title;
     private final BigDecimal amount;
     private final TransactionType type;
@@ -28,11 +30,16 @@ public class Transaction {
             throw new IllegalArgumentException("Category must not be null");
         }
 
+        this.id = UUID.randomUUID();
         this.title = title;
         this.amount = amount;
         this.type = type;
         this.date = date;
         this.category = category;
+    }
+
+    public UUID getId() {
+        return id;
     }
 
     public String getTitle() {
