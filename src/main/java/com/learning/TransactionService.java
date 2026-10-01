@@ -24,7 +24,7 @@ public class TransactionService {
     }
 
     public BigDecimal calculateBalance() {
-        BigDecimal balance = BigDecimal.ZERO;
+        BigDecimal balance = new BigDecimal("0.00");
         for (Transaction transaction: transactions) {
             if (transaction.getType() == TransactionType.INCOME) {
                 balance = balance.add(transaction.getAmount());
@@ -45,6 +45,12 @@ public class TransactionService {
             }
         }
         return Optional.empty();
+    }
+
+    public Transaction getByIdOrThrow(UUID id) {
+        return findById(id).orElseThrow(
+                () -> new TransactionNotFoundException("Transaction not found: " + id)
+        );
     }
 
     public boolean removeById(UUID id) {

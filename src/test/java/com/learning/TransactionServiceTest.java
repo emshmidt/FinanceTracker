@@ -25,7 +25,19 @@ class TransactionServiceTest {
     void calculateBalanceEmptyCorrectly() {
         TransactionService transactionService = new TransactionService();
 
-        assertEquals(BigDecimal.ZERO, transactionService.calculateBalance());
+        assertEquals(new BigDecimal("0.00"), transactionService.calculateBalance());
+    }
+
+    @Test
+    void calculateBalanceAddsFractionalAmountsExactly() {
+        TransactionService transactionService = new TransactionService();
+        Transaction transactionSalary = new Transaction("a", new BigDecimal("0.1"), TransactionType.INCOME, LocalDate.of(2025, 1, 15), Category.SALARY);
+        Transaction transactionFood = new Transaction("b", new BigDecimal("0.2"), TransactionType.INCOME, LocalDate.of(2025, 1, 15), Category.FOOD);
+
+        transactionService.add(transactionSalary);
+        transactionService.add(transactionFood);
+
+        assertEquals(new BigDecimal("0.30"), transactionService.calculateBalance());
     }
 
     @Test
@@ -246,6 +258,20 @@ class TransactionServiceTest {
     }
 
     @Test
+    void expensesByCategoryAddsFractionalAmountsExactly() {
+        TransactionService transactionService = new TransactionService();
+        Transaction firstTransaction = new Transaction("a", new BigDecimal("0.1"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 14), Category.SALARY);
+        Transaction secondTransaction = new Transaction("b", new BigDecimal("0.2"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 15), Category.SALARY);
+
+        transactionService.add(firstTransaction);
+        transactionService.add(secondTransaction);
+
+        Map<Category, BigDecimal> expenses = transactionService.expensesByCategory();
+
+        assertEquals(new BigDecimal("0.30"), expenses.get(Category.SALARY));
+    }
+
+    @Test
     void findAllReturnsSnapshotUnaffectedByLaterAdd() {
         TransactionService transactionService = new TransactionService();
         Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 15), Category.SALARY);
@@ -257,6 +283,31 @@ class TransactionServiceTest {
         transactionService.add(transactionFood);
 
         assertEquals(1, foundAll.size());
+    }
+
+    @Test
+    void getByIdOrThrowReturnsTransactionForExistingId() {
+        TransactionService transactionService = new TransactionService();
+        Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 15), Category.SALARY);
+        UUID id = transactionSalary.getId();
+
+        transactionService.add(transactionSalary);
+        Transaction result = transactionService.getByIdOrThrow(id);
+
+        assertSame(transactionSalary, result);
+    }
+
+    @Test
+    void getByIdOrThrowThrowsTransactionNotFoundExceptionForUnknownId() {
+        TransactionService transactionService = new TransactionService();
+        Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 15), Category.SALARY);
+        UUID id = UUID.randomUUID();
+
+        transactionService.add(transactionSalary);
+        assertThrows(
+                TransactionNotFoundException.class,
+                () ->  transactionService.getByIdOrThrow(id)
+        );
     }
 
 }
