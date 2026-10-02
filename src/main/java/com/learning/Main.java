@@ -1,11 +1,13 @@
 package com.learning;
 
+import javax.print.attribute.standard.Severity;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 //TIP To <b>Run</b> code, press <shortcut actionId="Run"/> or
 // click the <icon src="AllIcons.Actions.Execute"/> icon in the gutter.
@@ -18,6 +20,8 @@ public class Main {
 
         transactionService.add(transactionSalary);
         transactionService.add(transactionFood);
+
+
         System.out.println(transactionService.calculateBalance());
 
         System.out.println(new BigDecimal("0.1").compareTo(new BigDecimal(0.1)) == 0);
@@ -28,6 +32,16 @@ public class Main {
 
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy");
         List<Transaction> transactions = transactionService.findAll();
+
+        Stream<Transaction> transactionStream= transactions.stream();
+        Stream<String> titleStream = transactions.stream()
+                .map(Transaction::getTitle);
+        Stream<BigDecimal> amountStream = transactions.stream()
+                .map(Transaction::getAmount);
+
+
+
+
         for (Transaction transaction: transactions) {
             System.out.println(transaction.getCategory()+ " Date: " + transaction.getDate().format(formatter));
         }
@@ -45,5 +59,62 @@ public class Main {
         } catch (InvalidTransactionException e) {
             System.out.println("Ошибка: " + e.getMessage());
         }
+
+        TransactionService service = new TransactionService();
+
+        Transaction foodJanuary = new Transaction(
+                "Продукты в январе",
+                new BigDecimal("100.00"),
+                TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 10),
+                Category.FOOD
+        );
+
+        Transaction transportJanuary = new Transaction(
+                "Проезд в январе",
+                new BigDecimal("50.00"),
+                TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 20),
+                Category.TRANSPORT
+        );
+
+        Transaction foodFebruary = new Transaction(
+                "Продукты в феврале",
+                new BigDecimal("200.00"),
+                TransactionType.EXPENSE,
+                LocalDate.of(2025, 2, 5),
+                Category.FOOD
+        );
+
+        Transaction salaryFebruary = new Transaction(
+                "Зарплата в феврале",
+                new BigDecimal("1000.00"),
+                TransactionType.INCOME,
+                LocalDate.of(2025, 2, 6),
+                Category.SALARY
+        );
+
+        Transaction foodNextYear = new Transaction(
+                "Продукты в следующем году",
+                new BigDecimal("10.00"),
+                TransactionType.EXPENSE,
+                LocalDate.of(2026, 1, 10),
+                Category.FOOD
+        );
+
+        service.add(foodJanuary);
+        service.add(transportJanuary);
+        service.add(foodFebruary);
+        service.add(salaryFebruary);
+        service.add(foodNextYear);
+
+        System.out.println(service.expensesByCategory());
+        System.out.println(service.findMonthWithLargestExpenses());
+        System.out.println(service.findMostExpensiveCategory());
+        System.out.println(service.calculateAverageExpense());System.out.println(
+                service.findLargestExpenses(2).stream()
+                        .map(Transaction::getAmount)
+                        .toList()
+        );
     }
 }
