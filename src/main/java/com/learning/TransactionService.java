@@ -5,10 +5,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.*;
-import java.util.function.BiFunction;
-import java.util.function.BinaryOperator;
 import java.util.function.Predicate;
-import java.util.stream.Collector;
 import java.util.stream.Collectors;
 
 public class TransactionService {
@@ -35,8 +32,8 @@ public class TransactionService {
 
     public BigDecimal calculateBalance() {
         BigDecimal balance = new BigDecimal("0.00");
-        for (Transaction transaction: transactions) {
-            if (transaction.getType() == TransactionType.INCOME) {
+        for (Transaction transaction : transactions) {
+            if (!IS_EXPENSE.test(transaction)) {
                 balance = balance.add(transaction.getAmount());
             } else {
                 balance = balance.subtract(transaction.getAmount());
@@ -108,7 +105,7 @@ public class TransactionService {
 
     public Map<Category, BigDecimal> expensesByCategory() {
         return transactions.stream()
-                .filter(t -> t.getType() == TransactionType.EXPENSE)
+                .filter(IS_EXPENSE)
                 .collect(Collectors.toMap(
                         Transaction::getCategory,
                         Transaction::getAmount,
@@ -123,7 +120,7 @@ public class TransactionService {
         }
 
         return transactions.stream()
-                .filter(t -> t.getType() == TransactionType.EXPENSE)
+                .filter(IS_EXPENSE)
                 .sorted(Comparator.comparing(Transaction::getAmount).reversed()
                         .thenComparing(Transaction::getDate)
                         .thenComparing(Transaction::getId))
@@ -133,7 +130,7 @@ public class TransactionService {
 
     public Optional<YearMonth> findMonthWithLargestExpenses() {
         Map<YearMonth, BigDecimal> expensesByMonth = transactions.stream()
-                .filter(t -> t.getType() == TransactionType.EXPENSE)
+                .filter(IS_EXPENSE)
                 .collect(Collectors.groupingBy(
                         t -> YearMonth.from(t.getDate()),
                         Collectors.reducing(
@@ -166,16 +163,20 @@ public class TransactionService {
     }
 
     public Optional<BigDecimal> calculateAverageExpense() {
-        BigDecimal expensesSum = transactions.stream()
-                .filter(IS_EXPENSE)
-                .map(Transaction::getAmount)
-                .reduce(new BigDecimal("0.00"), BigDecimal::add);
-        long expensesCount = transactions.stream()
-                .filter(IS_EXPENSE)
-                .count();
-        if (expensesCount == 0) {
+        int count = 0;
+        BigDecimal sum = new BigDecimal("0.00");
+
+        for (Transaction transaction : transactions) {
+            if (IS_EXPENSE.test(transaction)) {
+                sum = sum.add(transaction.getAmount());
+                count ++;
+            }
+        }
+        if(count == 0) {
             return Optional.empty();
         }
-        return Optional.of(expensesSum.divide(new BigDecimal(expensesCount),2, RoundingMode.HALF_UP));
+        return Optional.of(
+                sum.divide(new BigDecimal(count),2, RoundingMode.HALF_UP)
+        );
     }
 }

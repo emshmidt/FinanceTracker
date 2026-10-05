@@ -1,379 +1,818 @@
 package com.learning;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Stream;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TransactionServiceTest {
-    @Test
-    void calculateBalanceCorrectly() {
-        TransactionService transactionService = new TransactionService();
-        Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 15), Category.SALARY);
-        Transaction transactionFood = new Transaction("b", new BigDecimal("30.00"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 15), Category.FOOD);
+    private TransactionService service;
 
-        transactionService.add(transactionSalary);
-        transactionService.add(transactionFood);
-
-        assertEquals(new BigDecimal("70.00"), transactionService.calculateBalance());
+    @BeforeEach
+    void setUp() {
+        service = new TransactionService();
     }
 
     @Test
-    void calculateBalanceEmptyCorrectly() {
-        TransactionService transactionService = new TransactionService();
+    void shouldCalculateBalanceFromIncomeAndExpenses() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+        Transaction foodExpense = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
 
-        assertEquals(new BigDecimal("0.00"), transactionService.calculateBalance());
+        addTransactions(salaryIncome, foodExpense);
+
+        assertEquals(new BigDecimal("70.00"), service.calculateBalance());
     }
 
     @Test
-    void calculateBalanceAddsFractionalAmountsExactly() {
-        TransactionService transactionService = new TransactionService();
-        Transaction transactionSalary = new Transaction("a", new BigDecimal("0.1"), TransactionType.INCOME, LocalDate.of(2025, 1, 15), Category.SALARY);
-        Transaction transactionFood = new Transaction("b", new BigDecimal("0.2"), TransactionType.INCOME, LocalDate.of(2025, 1, 15), Category.FOOD);
-
-        transactionService.add(transactionSalary);
-        transactionService.add(transactionFood);
-
-        assertEquals(new BigDecimal("0.30"), transactionService.calculateBalance());
+    void shouldReturnZeroBalanceWhenNoTransactionsExist() {
+        assertEquals(new BigDecimal("0.00"), service.calculateBalance());
     }
 
     @Test
-    void findAllReturnsUnmodifiableList() {
-        TransactionService transactionService = new TransactionService();
-        Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 15), Category.SALARY);
+    void shouldCalculateBalanceWithFractionalAmountsExactly() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "0.1", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+        Transaction foodIncome = createTransaction(
+                "Возврат за продукты", "0.2", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
 
-        transactionService.add(transactionSalary);
+        addTransactions(salaryIncome, foodIncome);
 
-        List<Transaction> transactionList = transactionService.findAll();
+        assertEquals(new BigDecimal("0.30"), service.calculateBalance());
+    }
+
+    @Test
+    void shouldReturnNegativeBalanceWhenOnlyExpensesExist() {
+        Transaction salaryExpense = createTransaction(
+                "Зарплатные выплаты", "0.1", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+        Transaction foodExpense = createTransaction(
+                "Продукты", "0.2", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
+
+        addTransactions(salaryExpense, foodExpense);
+
+        assertEquals(new BigDecimal("-0.30"), service.calculateBalance());
+    }
+
+    @Test
+    void shouldUpdateBalanceAfterRemovingExpense() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "0.1", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+        Transaction foodExpense = createTransaction(
+                "Продукты", "0.2", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
+
+        addTransactions(salaryIncome, foodExpense);
+        service.removeById(foodExpense.getId());
+
+        assertEquals(salaryIncome.getAmount(), service.calculateBalance());
+    }
+
+    @Test
+    void shouldReturnUnmodifiableListWhenFindingAllTransactions() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+
+        service.add(salaryIncome);
+
+        List<Transaction> transactionList = service.findAll();
 
         assertThrows(
                 UnsupportedOperationException.class,
-                () -> transactionList.add((new Transaction("b", new BigDecimal("30.00"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 15), Category.FOOD)))
+                () -> transactionList.add(createTransaction(
+                        "Продукты", "30.00", TransactionType.EXPENSE,
+                        LocalDate.of(2025, 1, 15), Category.FOOD
+                ))
         );
-        assertEquals(1,transactionService.findAll().size());
+        assertEquals(List.of(salaryIncome), service.findAll());
     }
 
     @Test
-    void addRejectsDuplicateTransactionId() {
-        TransactionService transactionService = new TransactionService();
-        Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 15), Category.SALARY);
+    void shouldRejectAddingTransactionWithDuplicateId() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
 
-        transactionService.add(transactionSalary);
+        service.add(salaryIncome);
         assertThrows(
                 IllegalArgumentException.class,
-                () -> transactionService.add(transactionSalary)
+                () -> service.add(salaryIncome)
         );
 
-        assertEquals(1, transactionService.findAll().size());
+        assertEquals(List.of(salaryIncome), service.findAll());
     }
 
     @Test
-    void findByIdReturnsTransactionForExistingId() {
-        TransactionService transactionService = new TransactionService();
-        Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 15), Category.SALARY);
-        UUID id = transactionSalary.getId();
+    void shouldAddValidTransaction() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
 
-        transactionService.add(transactionSalary);
-        Optional<Transaction> foundTransaction = transactionService.findById(id);
+        service.add(salaryIncome);
 
-        assertEquals(Optional.of(transactionSalary), foundTransaction);
+        assertEquals(List.of(salaryIncome), service.findAll());
     }
 
     @Test
-    void findByIdReturnsEmptyForUnknownId() {
-        TransactionService transactionService = new TransactionService();
-        Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 15), Category.SALARY);
-        UUID id =UUID.randomUUID();
+    void shouldRejectNullTransactionWithoutChangingState() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.add(null)
+        );
 
-        transactionService.add(transactionSalary);
-        Optional<Transaction> foundTransaction = transactionService.findById(id);
+        assertEquals(List.of(), service.findAll());
+    }
+
+    @Test
+    void shouldRejectNullIdWhenFindingTransaction() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.findById(null)
+        );
+    }
+
+    @Test
+    void shouldRejectNullIdWhenGettingTransaction() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.getByIdOrThrow(null)
+        );
+    }
+
+    @Test
+    void shouldFindTransactionWhenIdExists() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+        UUID id = salaryIncome.getId();
+
+        service.add(salaryIncome);
+        Optional<Transaction> foundTransaction = service.findById(id);
+
+        assertEquals(Optional.of(salaryIncome), foundTransaction);
+    }
+
+    @Test
+    void shouldReturnEmptyOptionalWhenFindingUnknownTransaction() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+        UUID id = UUID.randomUUID();
+
+        service.add(salaryIncome);
+        Optional<Transaction> foundTransaction = service.findById(id);
 
         assertEquals(Optional.empty(), foundTransaction);
     }
 
     @Test
-    void removeByIdRemovesTransactionAndReturnsTrue() {
-        TransactionService transactionService = new TransactionService();
-        Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 15), Category.SALARY);
-        UUID id = transactionSalary.getId();
+    void shouldRemoveTransactionAndReturnTrueWhenIdExists() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+        UUID id = salaryIncome.getId();
 
-        transactionService.add(transactionSalary);
-        boolean result = transactionService.removeById(id);
+        service.add(salaryIncome);
+        boolean result = service.removeById(id);
 
-        assertEquals(Optional.empty(), transactionService.findById(id));
-        assertEquals(0, transactionService.findAll().size());
+        assertEquals(Optional.empty(), service.findById(id));
+        assertEquals(List.of(), service.findAll());
         assertTrue(result);
     }
 
     @Test
-    void removeByIdReturnsFalseForUnknownId() {
-        TransactionService transactionService = new TransactionService();
-        Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 15), Category.SALARY);
+    void shouldReturnFalseWhenRemovingUnknownTransaction() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
         UUID id = UUID.randomUUID();
 
-        transactionService.add(transactionSalary);
-        boolean result = transactionService.removeById(id);
+        service.add(salaryIncome);
+        boolean result = service.removeById(id);
 
-        assertEquals(1, transactionService.findAll().size());
+        assertEquals(List.of(salaryIncome), service.findAll());
         assertFalse(result);
     }
 
     @Test
-    void findByCategoryReturnsOnlyMatchingTransactions() {
-        TransactionService transactionService = new TransactionService();
-        Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 15), Category.SALARY);
-        Transaction transactionFood = new Transaction("b", new BigDecimal("30.00"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 15), Category.FOOD);
+    void shouldRemoveOnlyTransactionWithMatchingId() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "0.1", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+        Transaction foodExpense = createTransaction(
+                "Продукты", "0.2", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
 
-        transactionService.add(transactionSalary);
-        transactionService.add(transactionFood);
-        List<Transaction> found = transactionService.findByCategory(Category.SALARY);
+        addTransactions(salaryIncome, foodExpense);
+        service.removeById(foodExpense.getId());
 
-        assertEquals(List.of(transactionSalary), found);
+        assertEquals(List.of(salaryIncome), service.findAll());
     }
 
     @Test
-    void findByCategoryReturnsEmptyWhenNoTransactionsMatch() {
-        TransactionService service = new TransactionService();
-        Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 15), Category.SALARY);
-        Transaction transactionFood = new Transaction("b", new BigDecimal("30.00"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 15), Category.FOOD);
+    void shouldRejectNullIdWhenRemovingTransaction() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.removeById(null)
+        );
+    }
 
-        service.add(transactionFood);
-        service.add(transactionSalary);
+    @Test
+    void shouldReturnFalseWhenRemovingSameTransactionTwice() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "0.1", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+        Transaction foodExpense = createTransaction(
+                "Продукты", "0.2", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
+
+        addTransactions(salaryIncome, foodExpense);
+        service.removeById(foodExpense.getId());
+
+        boolean result = service.removeById(foodExpense.getId());
+
+        assertFalse(result);
+    }
+
+    @Test
+    void shouldReturnFalseWhenRemovingTransactionFromEmptyService() {
+        UUID id = UUID.randomUUID();
+
+        boolean removed = service.removeById(id);
+
+        assertFalse(removed);
+        assertEquals(List.of(), service.findAll());
+    }
+
+    @Test
+    void shouldPreserveSnapshotWhenTransactionIsRemovedLater() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "0.1", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+        Transaction foodExpense = createTransaction(
+                "Продукты", "0.2", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
+
+        addTransactions(salaryIncome, foodExpense);
+        List<Transaction> snapshot = service.findAll();
+
+        service.removeById(foodExpense.getId());
+        List<Transaction> currentTransactions = service.findAll();
+
+        assertEquals(List.of(salaryIncome, foodExpense), snapshot);
+        assertEquals(List.of(salaryIncome), currentTransactions);
+    }
+
+    @Test
+    void shouldFindOnlyTransactionsInRequestedCategory() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+        Transaction foodExpense = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
+        Transaction foodIncome = createTransaction(
+                "Возврат за продукты", "30.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
+
+        addTransactions(salaryIncome, foodExpense, foodIncome);
+        List<Transaction> found = service.findByCategory(Category.FOOD);
+
+        assertEquals(List.of(foodExpense, foodIncome), found);
+    }
+
+    @Test
+    void shouldReturnEmptyListWhenNoTransactionsMatchCategory() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+        Transaction foodExpense = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
+
+        addTransactions(foodExpense, salaryIncome);
 
         assertEquals(List.of(), service.findByCategory(Category.TRANSPORT));
     }
 
     @Test
-    void findByDateRangeIncludesBothBoundaries() {
-        TransactionService transactionService = new TransactionService();
-        Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 14), Category.SALARY);
-        Transaction transactionFood = new Transaction("b", new BigDecimal("30.00"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 15), Category.FOOD);
-
-        transactionService.add(transactionSalary);
-        transactionService.add(transactionFood);
-        List<Transaction> found = transactionService.findByDateRange(LocalDate.of(2025, 1, 14), LocalDate.of(2025, 1, 15));
-
-        assertEquals(2, found.size());
-    }
-
-    @Test
-    void findByDateRangeExcludesTransactionsOutsideRange() {
-        TransactionService transactionService = new TransactionService();
-        Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 14), Category.SALARY);
-        Transaction transactionFood = new Transaction("b", new BigDecimal("30.00"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 15), Category.FOOD);
-        Transaction transactionFood2 = new Transaction("b", new BigDecimal("30.00"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 16), Category.FOOD);
-        Transaction transactionSalary2 = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 13), Category.SALARY);
-
-        transactionService.add(transactionSalary);
-        transactionService.add(transactionFood);
-        transactionService.add(transactionFood2);
-        transactionService.add(transactionSalary2);
-
-        List<Transaction> found = transactionService.findByDateRange(LocalDate.of(2025, 1, 14), LocalDate.of(2025, 1, 15));
-
-        assertEquals(List.of(transactionSalary, transactionFood), found);
-    }
-
-    @Test
-    void findByDateRangeRejectsReversedRange() {
-        TransactionService transactionService = new TransactionService();
-        Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 14), Category.SALARY);
-        Transaction transactionFood = new Transaction("b", new BigDecimal("30.00"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 15), Category.FOOD);
-
-        transactionService.add(transactionSalary);
-        transactionService.add(transactionFood);
-
+    void shouldRejectNullCategory() {
         assertThrows(
                 IllegalArgumentException.class,
-                () ->  transactionService.findByDateRange(LocalDate.of(2025, 1, 15), LocalDate.of(2025, 1, 14))
+                () -> service.findByCategory(null)
         );
     }
 
     @Test
-    void sortByDateReturnsTransactionsInAscendingOrder() {
-        TransactionService transactionService = new TransactionService();
-        Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 14), Category.SALARY);
-        Transaction transactionFood = new Transaction("b", new BigDecimal("30.00"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 15), Category.FOOD);
+    void shouldReturnUnmodifiableListWhenFindingTransactionsByCategory() {
+        Transaction transportIncome = createTransaction(
+                "Компенсация проезда", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.TRANSPORT
+        );
+        Transaction foodExpense = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
 
-        transactionService.add(transactionFood);
-        transactionService.add(transactionSalary);
+        addTransactions(foodExpense, transportIncome);
 
-        List<Transaction> found = transactionService.sortByDate();
-        boolean result = found.get(0).getDate().isBefore(found.get(1).getDate());
+        List<Transaction> found = service.findByCategory(Category.TRANSPORT);
 
-        assertTrue(result);
+        assertThrows(
+                UnsupportedOperationException.class,
+                () -> found.add(createTransaction(
+                        "Коммунальные услуги", "30.00", TransactionType.EXPENSE,
+                        LocalDate.of(2025, 1, 15), Category.UTILITIES
+                ))
+        );
+        assertEquals(List.of(transportIncome), found);
+        assertEquals(List.of(foodExpense, transportIncome), service.findAll());
+    }
+
+    @ParameterizedTest
+    @MethodSource("dateRangesWithNullBoundaries")
+    void shouldRejectDateRangeWithNullBoundary(
+            LocalDate from,
+            LocalDate to
+    ) {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.findByDateRange(from, to)
+        );
+    }
+
+    static Stream<Arguments> dateRangesWithNullBoundaries() {
+        LocalDate date = LocalDate.of(2025, 1, 1);
+
+        return Stream.of(
+                Arguments.of(null, date),
+                Arguments.of(date, null),
+                Arguments.of(null, null)
+        );
     }
 
     @Test
-    void sortByDateDoesNotChangeStoredOrder() {
-        TransactionService transactionService = new TransactionService();
-        Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 14), Category.SALARY);
-        Transaction transactionFood = new Transaction("b", new BigDecimal("30.00"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 15), Category.FOOD);
+    void shouldIncludeBothBoundariesWhenFindingTransactionsByDateRange() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 14), Category.SALARY
+        );
+        Transaction foodExpense = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
 
-        transactionService.add(transactionFood);
-        transactionService.add(transactionSalary);
+        addTransactions(salaryIncome, foodExpense);
+        List<Transaction> found = service.findByDateRange(LocalDate.of(2025, 1, 14), LocalDate.of(2025, 1, 15));
 
-        transactionService.sortByDate();
-        Transaction first = transactionService.findAll().getFirst();
-
-        assertEquals(transactionFood.getId(), first.getId());
+        assertEquals(List.of(salaryIncome, foodExpense), found);
     }
 
     @Test
-    void findByDateRangeReturnsTransactionsOnSingleDay() {
-        TransactionService service = new TransactionService();
+    void shouldExcludeTransactionsOutsideRequestedDateRange() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 14), Category.SALARY
+        );
+        Transaction foodExpense = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
+        Transaction laterFoodExpense = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 16), Category.FOOD
+        );
+        Transaction earlierSalaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 13), Category.SALARY
+        );
+
+        addTransactions(salaryIncome, foodExpense, laterFoodExpense, earlierSalaryIncome);
+
+        List<Transaction> found = service.findByDateRange(LocalDate.of(2025, 1, 14), LocalDate.of(2025, 1, 15));
+
+        assertEquals(List.of(salaryIncome, foodExpense), found);
+    }
+
+    @Test
+    void shouldRejectReversedDateRange() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 14), Category.SALARY
+        );
+        Transaction foodExpense = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
+
+        addTransactions(salaryIncome, foodExpense);
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.findByDateRange(LocalDate.of(2025, 1, 15), LocalDate.of(2025, 1, 14))
+        );
+    }
+
+    @Test
+    void shouldReturnEmptyListWhenNoDatesMatch() {
+        Transaction laterFoodExpense = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 16), Category.FOOD
+        );
+        Transaction earlierSalaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 13), Category.SALARY
+        );
+
+        addTransactions(laterFoodExpense, earlierSalaryIncome);
+
+        List<Transaction> found = service.findByDateRange(LocalDate.of(2025, 1, 14), LocalDate.of(2025, 1, 15));
+
+        assertEquals(List.of(), found);
+    }
+
+    @Test
+    void shouldSortTransactionsByDateInAscendingOrder() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 14), Category.SALARY
+        );
+        Transaction foodExpense = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
+
+        addTransactions(foodExpense, salaryIncome);
+
+        List<Transaction> found = service.sortByDate();
+        assertEquals(List.of(salaryIncome, foodExpense), found);
+    }
+
+    @Test
+    void shouldPreserveStoredOrderWhenSortingTransactionsByDate() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 14), Category.SALARY
+        );
+        Transaction foodExpense = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
+
+        addTransactions(foodExpense, salaryIncome);
+
+        service.sortByDate();
+        assertEquals(List.of(foodExpense, salaryIncome), service.findAll());
+    }
+
+    @Test
+    void shouldReturnEmptyListWhenSortingEmptyService() {
+        List<Transaction> sorted = service.sortByDate();
+
+        assertEquals(List.of(), sorted);
+    }
+
+    @Test
+    void shouldReturnSingleTransactionWhenSorting() {
+        Transaction foodExpense = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
+        service.add(foodExpense);
+
+        List<Transaction> sorted = service.sortByDate();
+
+        assertEquals(List.of(foodExpense), sorted);
+    }
+
+    @Test
+    void shouldFindTransactionsOnSingleDayWhenDateBoundariesAreEqual() {
         LocalDate dateEarlier = LocalDate.of(2025, 1, 14);
         LocalDate date = LocalDate.of(2025, 1, 15);
         LocalDate dateLater = LocalDate.of(2025, 1, 16);
 
+        Transaction earlierSalaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                dateEarlier, Category.SALARY
+        );
+        Transaction foodExpenseOnDate = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                date, Category.FOOD
+        );
+        Transaction laterFoodExpense = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                dateLater, Category.FOOD
+        );
 
-        Transaction transactionEarlier = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, dateEarlier, Category.SALARY);
-        Transaction transactionDayOf = new Transaction("b", new BigDecimal("30.00"), TransactionType.EXPENSE, date, Category.FOOD);
-        Transaction transactionLater = new Transaction("b", new BigDecimal("30.00"), TransactionType.EXPENSE, dateLater, Category.FOOD);
+        addTransactions(laterFoodExpense, foodExpenseOnDate, earlierSalaryIncome);
 
-        service.add(transactionLater);
-        service.add(transactionDayOf);
-        service.add(transactionEarlier);
-
-        assertEquals(List.of(transactionDayOf), service.findByDateRange(date, date));
+        assertEquals(List.of(foodExpenseOnDate), service.findByDateRange(date, date));
     }
 
     @Test
-    void expensesByCategorySumsExpensesInSameCategory(){
-        TransactionService transactionService = new TransactionService();
-        Transaction firstTransaction = new Transaction("a", new BigDecimal("100.00"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 14), Category.SALARY);
-        Transaction secondTransaction = new Transaction("b", new BigDecimal("30.00"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 15), Category.SALARY);
+    void shouldReturnUnmodifiableListWhenFindingTransactionsByDateRange() {
+        LocalDate dateEarlier = LocalDate.of(2025, 1, 14);
+        LocalDate date = LocalDate.of(2025, 1, 15);
 
-        transactionService.add(firstTransaction);
-        transactionService.add(secondTransaction);
+        Transaction earlierSalaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                dateEarlier, Category.SALARY
+        );
+        Transaction foodExpenseOnDate = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                date, Category.FOOD
+        );
 
-        Map<Category, BigDecimal> expenses = transactionService.expensesByCategory();
+        addTransactions(foodExpenseOnDate, earlierSalaryIncome);
 
-        BigDecimal sum = expenses.getOrDefault(Category.SALARY, BigDecimal.ZERO);
-        boolean result = new BigDecimal("130.00").compareTo(sum) == 0;
+        List<Transaction> found = service.findByDateRange(dateEarlier, date);
 
-        assertTrue(result);
+        assertThrows(
+                UnsupportedOperationException.class,
+                () -> found.add(createTransaction(
+                        "Продукты", "30.00", TransactionType.EXPENSE,
+                        LocalDate.of(2025, 1, 1), Category.FOOD
+                ))
+        );
+        assertEquals(List.of(foodExpenseOnDate, earlierSalaryIncome), found);
+        assertEquals(List.of(foodExpenseOnDate, earlierSalaryIncome), service.findAll());
     }
 
     @Test
-    void expensesByCategoryIgnoresIncome() {
-        TransactionService transactionService = new TransactionService();
-        Transaction firstTransaction = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 14), Category.SALARY);
-        Transaction secondTransaction = new Transaction("b", new BigDecimal("30.00"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 15), Category.SALARY);
+    void shouldReturnEmptyExpenseTotalsWhenNoTransactionsExist() {
+        Map<Category, BigDecimal> totals = service.expensesByCategory();
 
-        transactionService.add(firstTransaction);
-        transactionService.add(secondTransaction);
-
-        Map<Category, BigDecimal> expenses = transactionService.expensesByCategory();
-
-        BigDecimal sum = expenses.getOrDefault(Category.SALARY, BigDecimal.ZERO);
-        boolean result = new BigDecimal("30.00").compareTo(sum) == 0;
-
-        assertTrue(result);
+        assertEquals(Map.of(), totals);
     }
 
     @Test
-    void expensesByCategoryPreservesCategoryInsertionOrder() {
-        TransactionService transactionService = new TransactionService();
-        Transaction firstTransaction = new Transaction("a", new BigDecimal("100.00"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 14), Category.SALARY);
-        Transaction secondTransaction = new Transaction("b", new BigDecimal("30.00"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 15), Category.FOOD);
+    void shouldSumExpensesInSameCategory() {
+        Transaction firstSalaryExpense = createTransaction(
+                "Зарплатные выплаты", "100.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 14), Category.SALARY
+        );
+        Transaction secondSalaryExpense = createTransaction(
+                "Зарплатные выплаты", "30.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
 
-        transactionService.add(firstTransaction);
-        transactionService.add(secondTransaction);
+        addTransactions(firstSalaryExpense, secondSalaryExpense);
 
-        Map<Category, BigDecimal> expenses = transactionService.expensesByCategory();
+        Map<Category, BigDecimal> expenses = service.expensesByCategory();
+
+        assertEquals(Map.of(Category.SALARY, new BigDecimal("130.00")), expenses);
+    }
+
+    @Test
+    void shouldIgnoreIncomeWhenGroupingExpensesByCategory() {
+        Transaction firstSalaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 14), Category.SALARY
+        );
+        Transaction secondSalaryExpense = createTransaction(
+                "Зарплатные выплаты", "30.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+
+        addTransactions(firstSalaryIncome, secondSalaryExpense);
+
+        Map<Category, BigDecimal> expenses = service.expensesByCategory();
+
+        assertEquals(Map.of(Category.SALARY, new BigDecimal("30.00")), expenses);
+    }
+
+    @Test
+    void shouldPreserveCategoryInsertionOrderWhenGroupingExpenses() {
+        Transaction firstSalaryExpense = createTransaction(
+                "Зарплатные выплаты", "100.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 14), Category.SALARY
+        );
+        Transaction secondFoodExpense = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
+
+        addTransactions(firstSalaryExpense, secondFoodExpense);
+
+        Map<Category, BigDecimal> expenses = service.expensesByCategory();
         List<Category> categories = new ArrayList<>(expenses.keySet());
 
-        assertEquals(Category.SALARY, categories.get(0));
-        assertEquals(Category.FOOD, categories.get(1));
+        assertEquals(List.of(Category.SALARY, Category.FOOD), categories);
     }
 
     @Test
-    void expensesByCategoryAddsFractionalAmountsExactly() {
-        TransactionService transactionService = new TransactionService();
-        Transaction firstTransaction = new Transaction("a", new BigDecimal("0.1"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 14), Category.SALARY);
-        Transaction secondTransaction = new Transaction("b", new BigDecimal("0.2"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 15), Category.SALARY);
+    void shouldSumFractionalExpensesByCategoryExactly() {
+        Transaction firstSalaryExpense = createTransaction(
+                "Зарплатные выплаты", "0.1", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 14), Category.SALARY
+        );
+        Transaction secondSalaryExpense = createTransaction(
+                "Зарплатные выплаты", "0.2", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
 
-        transactionService.add(firstTransaction);
-        transactionService.add(secondTransaction);
+        addTransactions(firstSalaryExpense, secondSalaryExpense);
 
-        Map<Category, BigDecimal> expenses = transactionService.expensesByCategory();
+        Map<Category, BigDecimal> expenses = service.expensesByCategory();
 
-        assertEquals(new BigDecimal("0.30"), expenses.get(Category.SALARY));
+        assertEquals(Map.of(Category.SALARY, new BigDecimal("0.30")), expenses);
     }
 
     @Test
-    void findAllReturnsSnapshotUnaffectedByLaterAdd() {
-        TransactionService transactionService = new TransactionService();
-        Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 15), Category.SALARY);
-        Transaction transactionFood = new Transaction("b", new BigDecimal("30.00"), TransactionType.EXPENSE, LocalDate.of(2025, 1, 15), Category.FOOD);
+    void shouldReturnEmptyExpenseTotalsWhenOnlyIncomeExists() {
+        Transaction transportIncome = createTransaction(
+                "Компенсация проезда", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.TRANSPORT
+        );
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "30.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
 
-        transactionService.add(transactionSalary);
+        addTransactions(salaryIncome, transportIncome);
 
-        List<Transaction> foundAll = transactionService.findAll();
-        transactionService.add(transactionFood);
-
-        assertEquals(1, foundAll.size());
+        assertEquals(Map.of(), service.expensesByCategory());
     }
 
     @Test
-    void getByIdOrThrowReturnsTransactionForExistingId() {
-        TransactionService transactionService = new TransactionService();
-        Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 15), Category.SALARY);
-        UUID id = transactionSalary.getId();
+    void shouldCalculateExpenseTotalsForMultipleCategories() {
+        LocalDate date = LocalDate.of(2025, 1, 15);
 
-        transactionService.add(transactionSalary);
-        Transaction result = transactionService.getByIdOrThrow(id);
+        service.add(createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                date, Category.FOOD
+        ));
+        service.add(createTransaction(
+                "Обед", "20.00", TransactionType.EXPENSE,
+                date, Category.FOOD
+        ));
+        service.add(createTransaction(
+                "Аренда", "70.00", TransactionType.EXPENSE,
+                date, Category.RENT
+        ));
+        service.add(createTransaction(
+                "Возврат денег", "100.00", TransactionType.INCOME,
+                date, Category.FOOD
+        ));
 
-        assertSame(transactionSalary, result);
+        Map<Category, BigDecimal> totals = service.expensesByCategory();
+
+        assertEquals(
+                Map.of(
+                        Category.FOOD, new BigDecimal("50.00"),
+                        Category.RENT, new BigDecimal("70.00")
+                ),
+                totals
+        );
     }
 
     @Test
-    void getByIdOrThrowThrowsTransactionNotFoundExceptionForUnknownId() {
-        TransactionService transactionService = new TransactionService();
-        Transaction transactionSalary = new Transaction("a", new BigDecimal("100.00"), TransactionType.INCOME, LocalDate.of(2025, 1, 15), Category.SALARY);
+    void shouldPreserveExpenseTotalsWhenReturnedMapIsModified() {
+        Transaction salaryExpense = createTransaction(
+                "Зарплатные выплаты", "100.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+        Transaction salaryExpense2 = createTransaction(
+                "Зарплатные выплаты", "30.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+
+        addTransactions(salaryExpense2, salaryExpense);
+
+        Map<Category, BigDecimal> returnedTotals = service.expensesByCategory();
+
+        returnedTotals.clear();
+
+        Map<Category, BigDecimal> recalculatedTotals = service.expensesByCategory();
+
+        assertEquals(Map.of(Category.SALARY, new BigDecimal("130.00")), recalculatedTotals);
+    }
+
+    @Test
+    void shouldPreserveSnapshotWhenTransactionIsAddedLater() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+        Transaction foodExpense = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
+
+        service.add(salaryIncome);
+
+        List<Transaction> snapshot = service.findAll();
+        service.add(foodExpense);
+
+        assertEquals(List.of(salaryIncome), snapshot);
+        assertEquals(List.of(salaryIncome, foodExpense), service.findAll());
+    }
+
+    @Test
+    void shouldReturnTransactionWithoutThrowingWhenIdExists() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+        UUID id = salaryIncome.getId();
+
+        service.add(salaryIncome);
+        Transaction result = service.getByIdOrThrow(id);
+
+        assertSame(salaryIncome, result);
+    }
+
+    @Test
+    void shouldThrowTransactionNotFoundExceptionWhenIdDoesNotExist() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
         UUID id = UUID.randomUUID();
 
-        transactionService.add(transactionSalary);
+        service.add(salaryIncome);
         assertThrows(
                 TransactionNotFoundException.class,
-                () ->  transactionService.getByIdOrThrow(id)
+                () -> service.getByIdOrThrow(id)
         );
     }
 
     @Test
-    void findLargestExpensesReturnsTopExpensesInDescendingOrder() {
-        TransactionService service = new TransactionService();
+    void shouldReturnLargestExpensesInDescendingOrder() {
         LocalDate date = LocalDate.of(2026, 10, 2);
 
-        Transaction expense30 = new Transaction(
-                "Проезд", new BigDecimal("30.00"),
-                TransactionType.EXPENSE, date, Category.TRANSPORT
+        Transaction expense30 = createTransaction(
+                "Проезд", "30.00", TransactionType.EXPENSE,
+                date, Category.TRANSPORT
         );
 
-        Transaction expense100 = new Transaction(
-                "Продукты", new BigDecimal("100.00"),
-                TransactionType.EXPENSE, date, Category.FOOD
+        Transaction expense100 = createTransaction(
+                "Продукты", "100.00", TransactionType.EXPENSE,
+                date, Category.FOOD
         );
 
-        Transaction expense50 = new Transaction(
-                "Коммунальные услуги", new BigDecimal("50.00"),
-                TransactionType.EXPENSE, date, Category.UTILITIES
+        Transaction expense50 = createTransaction(
+                "Коммунальные услуги", "50.00", TransactionType.EXPENSE,
+                date, Category.UTILITIES
         );
 
-        Transaction income1000 = new Transaction(
-                "Зарплата", new BigDecimal("1000.00"),
-                TransactionType.INCOME, date, Category.SALARY
+        Transaction income1000 = createTransaction(
+                "Зарплата", "1000.00", TransactionType.INCOME,
+                date, Category.SALARY
         );
 
-        service.add(expense30);
-        service.add(expense100);
-        service.add(expense50);
-        service.add(income1000);
+        addTransactions(expense30, expense100, expense50, income1000);
 
         assertEquals(
                 List.of(expense100, expense50),
@@ -382,34 +821,30 @@ class TransactionServiceTest {
     }
 
     @Test
-    void findLargestExpensesReturnsAllExpensesWhenLimitExceedsCount() {
-        TransactionService service = new TransactionService();
+    void shouldReturnAllExpensesWhenLimitExceedsExpenseCount() {
         LocalDate date = LocalDate.of(2026, 10, 2);
 
-        Transaction expense30 = new Transaction(
-                "Проезд", new BigDecimal("30.00"),
-                TransactionType.EXPENSE, date, Category.TRANSPORT
+        Transaction expense30 = createTransaction(
+                "Проезд", "30.00", TransactionType.EXPENSE,
+                date, Category.TRANSPORT
         );
 
-        Transaction expense100 = new Transaction(
-                "Продукты", new BigDecimal("100.00"),
-                TransactionType.EXPENSE, date, Category.FOOD
+        Transaction expense100 = createTransaction(
+                "Продукты", "100.00", TransactionType.EXPENSE,
+                date, Category.FOOD
         );
 
-        Transaction expense50 = new Transaction(
-                "Коммунальные услуги", new BigDecimal("50.00"),
-                TransactionType.EXPENSE, date, Category.UTILITIES
+        Transaction expense50 = createTransaction(
+                "Коммунальные услуги", "50.00", TransactionType.EXPENSE,
+                date, Category.UTILITIES
         );
 
-        Transaction income1000 = new Transaction(
-                "Зарплата", new BigDecimal("1000.00"),
-                TransactionType.INCOME, date, Category.SALARY
+        Transaction income1000 = createTransaction(
+                "Зарплата", "1000.00", TransactionType.INCOME,
+                date, Category.SALARY
         );
 
-        service.add(expense30);
-        service.add(expense100);
-        service.add(expense50);
-        service.add(income1000);
+        addTransactions(expense30, expense100, expense50, income1000);
 
         assertEquals(
                 List.of(expense100, expense50, expense30),
@@ -418,34 +853,30 @@ class TransactionServiceTest {
     }
 
     @Test
-    void findLargestExpensesReturnsEmptyListForZeroLimit() {
-        TransactionService service = new TransactionService();
+    void shouldReturnEmptyListOfLargestExpensesWhenLimitIsZero() {
         LocalDate date = LocalDate.of(2026, 10, 2);
 
-        Transaction expense30 = new Transaction(
-                "Проезд", new BigDecimal("30.00"),
-                TransactionType.EXPENSE, date, Category.TRANSPORT
+        Transaction expense30 = createTransaction(
+                "Проезд", "30.00", TransactionType.EXPENSE,
+                date, Category.TRANSPORT
         );
 
-        Transaction expense100 = new Transaction(
-                "Продукты", new BigDecimal("100.00"),
-                TransactionType.EXPENSE, date, Category.FOOD
+        Transaction expense100 = createTransaction(
+                "Продукты", "100.00", TransactionType.EXPENSE,
+                date, Category.FOOD
         );
 
-        Transaction expense50 = new Transaction(
-                "Коммунальные услуги", new BigDecimal("50.00"),
-                TransactionType.EXPENSE, date, Category.UTILITIES
+        Transaction expense50 = createTransaction(
+                "Коммунальные услуги", "50.00", TransactionType.EXPENSE,
+                date, Category.UTILITIES
         );
 
-        Transaction income1000 = new Transaction(
-                "Зарплата", new BigDecimal("1000.00"),
-                TransactionType.INCOME, date, Category.SALARY
+        Transaction income1000 = createTransaction(
+                "Зарплата", "1000.00", TransactionType.INCOME,
+                date, Category.SALARY
         );
 
-        service.add(expense30);
-        service.add(expense100);
-        service.add(expense50);
-        service.add(income1000);
+        addTransactions(expense30, expense100, expense50, income1000);
 
         assertEquals(
                 List.of(),
@@ -454,36 +885,32 @@ class TransactionServiceTest {
     }
 
     @Test
-    void findLargestExpensesRejectsNegativeLimit() {
-        TransactionService service = new TransactionService();
+    void shouldRejectNegativeLimitWhenFindingLargestExpenses() {
         LocalDate date = LocalDate.of(2026, 10, 2);
 
-        Transaction expense30 = new Transaction(
-                "Проезд", new BigDecimal("30.00"),
-                TransactionType.EXPENSE, date, Category.TRANSPORT
+        Transaction expense30 = createTransaction(
+                "Проезд", "30.00", TransactionType.EXPENSE,
+                date, Category.TRANSPORT
         );
         service.add(expense30);
         assertThrows(
                 IllegalArgumentException.class,
-                () ->  service.findLargestExpenses(-9)
+                () -> service.findLargestExpenses(-9)
         );
     }
 
     @Test
-    void findLargestExpensesReturnsEmptyListWhenServiceIsEmpty() {
-        TransactionService service = new TransactionService();
-
+    void shouldReturnEmptyListOfLargestExpensesWhenNoTransactionsExist() {
         assertEquals(List.of(), service.findLargestExpenses(2));
     }
 
     @Test
-    void findLargestExpensesReturnsEmptyListWhenOnlyIncomeExists() {
-        TransactionService service = new TransactionService();
+    void shouldReturnEmptyListOfLargestExpensesWhenOnlyIncomeExists() {
         LocalDate date = LocalDate.of(2026, 10, 2);
 
-        Transaction income1000 = new Transaction(
-                "Зарплата", new BigDecimal("1000.00"),
-                TransactionType.INCOME, date, Category.SALARY
+        Transaction income1000 = createTransaction(
+                "Зарплата", "1000.00", TransactionType.INCOME,
+                date, Category.SALARY
         );
 
         service.add(income1000);
@@ -492,24 +919,19 @@ class TransactionServiceTest {
     }
 
     @Test
-    void findLargestExpensesSortsEqualAmountsByDateThenId() {
-        TransactionService service = new TransactionService();
-
-        Transaction earlier = new Transaction(
-                "Проезд", new BigDecimal("100.00"),
-                TransactionType.EXPENSE,
+    void shouldSortLargestExpensesWithEqualAmountsByDateThenId() {
+        Transaction earlier = createTransaction(
+                "Проезд", "100.00", TransactionType.EXPENSE,
                 LocalDate.of(2026, 10, 1), Category.TRANSPORT
         );
 
-        Transaction first = new Transaction(
-                "Продукты", new BigDecimal("100.00"),
-                TransactionType.EXPENSE,
+        Transaction first = createTransaction(
+                "Продукты", "100.00", TransactionType.EXPENSE,
                 LocalDate.of(2026, 10, 2), Category.FOOD
         );
 
-        Transaction second = new Transaction(
-                "Услуги", new BigDecimal("100.00"),
-                TransactionType.EXPENSE,
+        Transaction second = createTransaction(
+                "Услуги", "100.00", TransactionType.EXPENSE,
                 LocalDate.of(2026, 10, 2), Category.UTILITIES
         );
 
@@ -517,9 +939,7 @@ class TransactionServiceTest {
                 first.getId().compareTo(second.getId()) < 0 ? first : second;
         Transaction largerId = smallerId == first ? second : first;
 
-        service.add(largerId);
-        service.add(smallerId);
-        service.add(earlier);
+        addTransactions(largerId, smallerId, earlier);
 
         List<Transaction> result = service.findLargestExpenses(3);
 
@@ -530,24 +950,75 @@ class TransactionServiceTest {
     }
 
     @Test
-    void findLargestExpensesDoesNotChangeStoredOrder() {
-        TransactionService service = new TransactionService();
+    void shouldSortEqualDatesById() {
+        LocalDate date = LocalDate.of(2025, 1, 15);
+        LocalDate dateLater = LocalDate.of(2025, 1, 16);
 
-        Transaction earlier = new Transaction(
-                "Проезд", new BigDecimal("100.00"),
-                TransactionType.EXPENSE,
+        Transaction salaryIncomeOnDate = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                date, Category.SALARY
+        );
+        Transaction secondFoodExpense = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                date, Category.FOOD
+        );
+        Transaction laterFoodExpense = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                dateLater, Category.FOOD
+        );
+
+        Transaction first = (salaryIncomeOnDate.getId().compareTo(secondFoodExpense.getId()) < 0) ? salaryIncomeOnDate : secondFoodExpense;
+
+        Transaction second = first.equals(salaryIncomeOnDate) ? secondFoodExpense : salaryIncomeOnDate;
+
+        addTransactions(laterFoodExpense, second, first);
+
+        assertEquals(
+                List.of(first, second, laterFoodExpense),
+                service.sortByDate()
+        );
+    }
+
+    @Test
+    void shouldReturnUnmodifiableListWhenSortingTransactionsByDate() {
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 14), Category.SALARY
+        );
+        Transaction foodExpense = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                LocalDate.of(2025, 1, 15), Category.FOOD
+        );
+
+        addTransactions(foodExpense, salaryIncome);
+
+        List<Transaction> sorted = service.sortByDate();
+
+        assertThrows(
+                UnsupportedOperationException.class,
+                () -> sorted.add(createTransaction(
+                        "Зарплата", "100.00", TransactionType.INCOME,
+                        LocalDate.of(2025, 1, 14), Category.SALARY
+                ))
+        );
+        assertEquals(List.of(salaryIncome, foodExpense), sorted);
+        assertEquals(List.of(foodExpense, salaryIncome), service.findAll());
+    }
+
+    @Test
+    void shouldPreserveStoredOrderWhenFindingLargestExpenses() {
+        Transaction earlier = createTransaction(
+                "Проезд", "100.00", TransactionType.EXPENSE,
                 LocalDate.of(2026, 10, 1), Category.TRANSPORT
         );
 
-        Transaction first = new Transaction(
-                "Продукты", new BigDecimal("100.00"),
-                TransactionType.EXPENSE,
+        Transaction first = createTransaction(
+                "Продукты", "100.00", TransactionType.EXPENSE,
                 LocalDate.of(2026, 10, 2), Category.FOOD
         );
 
-        Transaction second = new Transaction(
-                "Услуги", new BigDecimal("100.00"),
-                TransactionType.EXPENSE,
+        Transaction second = createTransaction(
+                "Услуги", "100.00", TransactionType.EXPENSE,
                 LocalDate.of(2026, 10, 2), Category.UTILITIES
         );
 
@@ -555,9 +1026,7 @@ class TransactionServiceTest {
                 first.getId().compareTo(second.getId()) < 0 ? first : second;
         Transaction largerId = smallerId == first ? second : first;
 
-        service.add(largerId);
-        service.add(smallerId);
-        service.add(earlier);
+        addTransactions(largerId, smallerId, earlier);
 
         service.findLargestExpenses(3);
 
@@ -568,134 +1037,150 @@ class TransactionServiceTest {
     }
 
     @Test
-    void findMonthWithLargestExpensesSumsExpensesWithinMonth() {
-        TransactionService service = new TransactionService();
+    void shouldReturnUnmodifiableListWhenFindingLargestExpenses() {
+        LocalDate date = LocalDate.of(2025, 1, 1);
+
+        Transaction expense100 = createTransaction(
+                "Продукты", "100.00", TransactionType.EXPENSE,
+                date, Category.FOOD
+        );
+
+        Transaction expense50 = createTransaction(
+                "Коммунальные услуги", "50.00", TransactionType.EXPENSE,
+                date, Category.UTILITIES
+        );
+
+        Transaction income1000 = createTransaction(
+                "Зарплата", "1000.00", TransactionType.INCOME,
+                date, Category.SALARY
+        );
+
+        addTransactions(expense100, expense50, income1000);
+
+        List<Transaction> found = service.findLargestExpenses(1);
+
+        assertThrows(
+                UnsupportedOperationException.class,
+                () -> found.add(createTransaction(
+                        "Коммунальные услуги", "50.00", TransactionType.EXPENSE,
+                        date, Category.UTILITIES
+                ))
+        );
+        assertEquals(List.of(expense100), found);
+        assertEquals(List.of(expense100, expense50, income1000), service.findAll());
+    }
+
+    @Test
+    void shouldFindMonthWithLargestTotalExpenses() {
         LocalDate date = LocalDate.of(2026, 10, 2);
-        LocalDate date2 = LocalDate.of(2026, 9, 1);
+        LocalDate previousMonthDate = LocalDate.of(2026, 9, 1);
 
-        Transaction expense30 = new Transaction(
-                "Проезд", new BigDecimal("30.00"),
-                TransactionType.EXPENSE, date, Category.TRANSPORT
+        Transaction expense30 = createTransaction(
+                "Проезд", "30.00", TransactionType.EXPENSE,
+                date, Category.TRANSPORT
         );
 
-        Transaction expense80 = new Transaction(
-                "Продукты", new BigDecimal("80.00"),
-                TransactionType.EXPENSE, date, Category.FOOD
+        Transaction expense80 = createTransaction(
+                "Продукты", "80.00", TransactionType.EXPENSE,
+                date, Category.FOOD
         );
 
-        Transaction expense100 = new Transaction(
-                "Коммунальные услуги", new BigDecimal("100.00"),
-                TransactionType.EXPENSE, date2, Category.UTILITIES
+        Transaction expense100 = createTransaction(
+                "Коммунальные услуги", "100.00", TransactionType.EXPENSE,
+                previousMonthDate, Category.UTILITIES
         );
 
-
-        service.add(expense30);
-        service.add(expense80);
-        service.add(expense100);
+        addTransactions(expense30, expense80, expense100);
 
         assertEquals(Optional.of(YearMonth.from(date)), service.findMonthWithLargestExpenses());
     }
 
     @Test
-    void findMonthWithLargestExpensesIgnoresIncome() {
-        TransactionService service = new TransactionService();
+    void shouldIgnoreIncomeWhenFindingMonthWithLargestExpenses() {
         LocalDate date = LocalDate.of(2026, 10, 2);
-        LocalDate date2 = LocalDate.of(2026, 9, 1);
+        LocalDate previousMonthDate = LocalDate.of(2026, 9, 1);
 
-        Transaction expense30 = new Transaction(
-                "Проезд", new BigDecimal("30.00"),
-                TransactionType.EXPENSE, date, Category.TRANSPORT
+        Transaction expense30 = createTransaction(
+                "Проезд", "30.00", TransactionType.EXPENSE,
+                date, Category.TRANSPORT
         );
 
-        Transaction expense100 = new Transaction(
-                "Продукты", new BigDecimal("100.00"),
-                TransactionType.EXPENSE, date, Category.FOOD
+        Transaction expense100 = createTransaction(
+                "Продукты", "100.00", TransactionType.EXPENSE,
+                date, Category.FOOD
         );
 
-        Transaction expense50 = new Transaction(
-                "Коммунальные услуги", new BigDecimal("50.00"),
-                TransactionType.EXPENSE, date, Category.UTILITIES
+        Transaction expense50 = createTransaction(
+                "Коммунальные услуги", "50.00", TransactionType.EXPENSE,
+                date, Category.UTILITIES
         );
 
-        Transaction income1000 = new Transaction(
-                "Зарплата", new BigDecimal("1000.00"),
-                TransactionType.INCOME, date2, Category.SALARY
+        Transaction income1000 = createTransaction(
+                "Зарплата", "1000.00", TransactionType.INCOME,
+                previousMonthDate, Category.SALARY
         );
 
-        service.add(expense30);
-        service.add(expense100);
-        service.add(expense50);
-        service.add(income1000);
+        addTransactions(expense30, expense100, expense50, income1000);
 
         assertEquals(Optional.of(YearMonth.from(date)), service.findMonthWithLargestExpenses());
     }
 
     @Test
-    void findMonthWithLargestExpensesDistinguishesSameMonthInDifferentYears() {
-        TransactionService service = new TransactionService();
+    void shouldDistinguishSameMonthInDifferentYearsWhenFindingLargestExpenses() {
         LocalDate date = LocalDate.of(2026, 10, 2);
-        LocalDate date2 = LocalDate.of(2026, 9, 1);
-        LocalDate dateEarlier = LocalDate.of(2025, 10, 2);
+        LocalDate previousMonthDate = LocalDate.of(2026, 9, 1);
+        LocalDate sameMonthPreviousYear = LocalDate.of(2025, 10, 2);
 
-        Transaction expense30 = new Transaction(
-                "Проезд", new BigDecimal("30.00"),
-                TransactionType.EXPENSE, date, Category.TRANSPORT
+        Transaction expense30 = createTransaction(
+                "Проезд", "30.00", TransactionType.EXPENSE,
+                date, Category.TRANSPORT
         );
 
-        Transaction expense80 = new Transaction(
-                "Продукты", new BigDecimal("80.00"),
-                TransactionType.EXPENSE, dateEarlier, Category.FOOD
+        Transaction expense80 = createTransaction(
+                "Продукты", "80.00", TransactionType.EXPENSE,
+                sameMonthPreviousYear, Category.FOOD
         );
 
-        Transaction expense100 = new Transaction(
-                "Коммунальные услуги", new BigDecimal("100.00"),
-                TransactionType.EXPENSE, date2, Category.UTILITIES
+        Transaction expense100 = createTransaction(
+                "Коммунальные услуги", "100.00", TransactionType.EXPENSE,
+                previousMonthDate, Category.UTILITIES
         );
 
+        addTransactions(expense30, expense80, expense100);
 
-        service.add(expense30);
-        service.add(expense80);
-        service.add(expense100);
-
-        assertEquals(Optional.of(YearMonth.from(date2)), service.findMonthWithLargestExpenses());
+        assertEquals(Optional.of(YearMonth.from(previousMonthDate)), service.findMonthWithLargestExpenses());
     }
 
     @Test
-    void findMonthWithLargestExpensesReturnsEarlierMonthWhenTotalsAreEqual() {
-        TransactionService service = new TransactionService();
+    void shouldReturnEarlierMonthWhenExpenseTotalsAreEqual() {
         LocalDate date = LocalDate.of(2026, 10, 2);
         LocalDate laterDate = LocalDate.of(2026, 11, 3);
 
-        Transaction expenseFirst = new Transaction(
-                "Проезд", new BigDecimal("100.00"),
-                TransactionType.EXPENSE, date, Category.TRANSPORT
+        Transaction expenseFirst = createTransaction(
+                "Проезд", "100.00", TransactionType.EXPENSE,
+                date, Category.TRANSPORT
         );
 
-        Transaction expenseSecond = new Transaction(
-                "Продукты", new BigDecimal("100.00"),
-                TransactionType.EXPENSE, laterDate, Category.FOOD
+        Transaction expenseSecond = createTransaction(
+                "Продукты", "100.00", TransactionType.EXPENSE,
+                laterDate, Category.FOOD
         );
 
-
-        service.add(expenseSecond);
-        service.add(expenseFirst);
+        addTransactions(expenseSecond, expenseFirst);
 
         assertEquals(Optional.of(YearMonth.from(date)), service.findMonthWithLargestExpenses());
     }
 
     @Test
-    void findMonthWithLargestExpensesReturnsEmptyWhenServiceIsEmpty() {
-        TransactionService service = new TransactionService();
-
+    void shouldReturnEmptyMonthWhenNoTransactionsExist() {
         assertEquals(Optional.empty(), service.findMonthWithLargestExpenses());
     }
 
     @Test
-    void findMonthWithLargestExpensesReturnsEmptyWhenOnlyIncomeExists() {
-        TransactionService service = new TransactionService();
-        Transaction income1000 = new Transaction(
-                "Зарплата", new BigDecimal("1000.00"),
-                TransactionType.INCOME, LocalDate.of(2025, 1, 1), Category.SALARY
+    void shouldReturnEmptyMonthWhenOnlyIncomeExists() {
+        Transaction income1000 = createTransaction(
+                "Зарплата", "1000.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 1), Category.SALARY
         );
 
         service.add(income1000);
@@ -704,67 +1189,59 @@ class TransactionServiceTest {
     }
 
     @Test
-    void findMostExpensiveCategoryReturnsCategoryWithLargestTotal() {
-        TransactionService service = new TransactionService();
+    void shouldFindCategoryWithLargestTotalExpenses() {
         LocalDate date = LocalDate.of(2026, 10, 2);
 
-        Transaction expense30 = new Transaction(
-                "Проезд", new BigDecimal("30.00"),
-                TransactionType.EXPENSE, date, Category.FOOD
+        Transaction expense30 = createTransaction(
+                "Продукты", "30.00", TransactionType.EXPENSE,
+                date, Category.FOOD
         );
 
-        Transaction expense80 = new Transaction(
-                "Продукты", new BigDecimal("80.00"),
-                TransactionType.EXPENSE, date, Category.FOOD
+        Transaction expense80 = createTransaction(
+                "Продукты", "80.00", TransactionType.EXPENSE,
+                date, Category.FOOD
         );
 
-        Transaction expense100 = new Transaction(
-                "Коммунальные услуги", new BigDecimal("100.00"),
-                TransactionType.EXPENSE, date, Category.TRANSPORT
+        Transaction expense100 = createTransaction(
+                "Проезд", "100.00", TransactionType.EXPENSE,
+                date, Category.TRANSPORT
         );
 
-        service.add(expense30);
-        service.add(expense100);
-        service.add(expense80);
+        addTransactions(expense30, expense100, expense80);
 
         assertEquals(Optional.of(Category.FOOD), service.findMostExpensiveCategory());
     }
 
     @Test
-    void findMostExpensiveCategoryReturnsAlphabeticallyFirstNameWhenTotalsAreEqual() {
-        TransactionService service = new TransactionService();
+    void shouldReturnAlphabeticallyFirstCategoryWhenExpenseTotalsAreEqual() {
         LocalDate date = LocalDate.of(2025, 1, 1);
 
-        Transaction expenseRent = new Transaction(
-                "Коммунальные услуги", new BigDecimal("100.00"),
-                TransactionType.EXPENSE, date, Category.RENT
+        Transaction expenseRent = createTransaction(
+                "Аренда", "100.00", TransactionType.EXPENSE,
+                date, Category.RENT
         );
-        Transaction expenseTransport = new Transaction(
-                "Коммунальные услуги", new BigDecimal("100.00"),
-                TransactionType.EXPENSE, date, Category.TRANSPORT
+        Transaction expenseTransport = createTransaction(
+                "Проезд", "100.00", TransactionType.EXPENSE,
+                date, Category.TRANSPORT
         );
 
-        service.add(expenseTransport);
-        service.add(expenseRent);
+        addTransactions(expenseTransport, expenseRent);
 
         assertEquals(Optional.of(Category.RENT), service.findMostExpensiveCategory());
     }
 
     @Test
-    void findMostExpensiveCategoryReturnsEmptyWhenServiceIsEmpty() {
-        TransactionService service = new TransactionService();
-
+    void shouldReturnEmptyCategoryWhenNoTransactionsExist() {
         assertEquals(Optional.empty(), service.findMostExpensiveCategory());
     }
 
     @Test
-    void findMostExpensiveCategoryReturnsEmptyWhenOnlyIncomeExists() {
-        TransactionService service = new TransactionService();
+    void shouldReturnEmptyCategoryWhenOnlyIncomeExists() {
         LocalDate date = LocalDate.of(2025, 1, 1);
 
-        Transaction income = new Transaction(
-                "Коммунальные услуги", new BigDecimal("100.00"),
-                TransactionType.INCOME, date, Category.SALARY
+        Transaction income = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                date, Category.SALARY
         );
 
         service.add(income);
@@ -773,111 +1250,115 @@ class TransactionServiceTest {
     }
 
     @Test
-    void calculateAverageExpenseReturnsAverageOfExpenses() {
-        TransactionService service = new TransactionService();
+    void shouldCalculateAverageExpense() {
         LocalDate date = LocalDate.of(2025, 1, 1);
 
-        Transaction expenseFood = new Transaction(
-                "Коммунальные услуги", new BigDecimal("100.00"),
-                TransactionType.EXPENSE, date, Category.FOOD
+        Transaction expenseFood = createTransaction(
+                "Продукты", "100.00", TransactionType.EXPENSE,
+                date, Category.FOOD
         );
-        Transaction expenseTransport = new Transaction(
-                "Коммунальные услуги", new BigDecimal("200.00"),
-                TransactionType.EXPENSE, date, Category.TRANSPORT
+        Transaction expenseTransport = createTransaction(
+                "Проезд", "200.00", TransactionType.EXPENSE,
+                date, Category.TRANSPORT
         );
 
-        service.add(expenseTransport);
-        service.add(expenseFood);
+        addTransactions(expenseTransport, expenseFood);
 
         assertEquals(Optional.of(new BigDecimal("150.00")), service.calculateAverageExpense());
     }
 
     @Test
-    void calculateAverageExpenseIgnoresIncome() {
-        TransactionService service = new TransactionService();
+    void shouldIgnoreIncomeWhenCalculatingAverageExpense() {
         LocalDate date = LocalDate.of(2025, 1, 1);
 
-        Transaction expenseFood = new Transaction(
-                "Коммунальные услуги", new BigDecimal("100.00"),
-                TransactionType.EXPENSE, date, Category.FOOD
+        Transaction expenseFood = createTransaction(
+                "Продукты", "100.00", TransactionType.EXPENSE,
+                date, Category.FOOD
         );
-        Transaction expenseTransport = new Transaction(
-                "Коммунальные услуги", new BigDecimal("200.00"),
-                TransactionType.EXPENSE, date, Category.TRANSPORT
+        Transaction expenseTransport = createTransaction(
+                "Проезд", "200.00", TransactionType.EXPENSE,
+                date, Category.TRANSPORT
         );
-        Transaction income = new Transaction(
-                "Коммунальные услуги", new BigDecimal("1000.00"),
-                TransactionType.INCOME, date, Category.FOOD
+        Transaction income = createTransaction(
+                "Возврат за продукты", "1000.00", TransactionType.INCOME,
+                date, Category.FOOD
         );
 
-        service.add(expenseTransport);
-        service.add(expenseFood);
-        service.add(income);
+        addTransactions(expenseTransport, expenseFood, income);
 
         assertEquals(Optional.of(new BigDecimal("150.00")), service.calculateAverageExpense());
     }
 
     @Test
-    void calculateAverageExpenseRoundsToTwoDecimalPlacesUsingHalfUp() {
-        TransactionService service = new TransactionService();
+    void shouldRoundAverageExpenseToTwoDecimalPlacesUsingHalfUp() {
         LocalDate date = LocalDate.of(2025, 1, 1);
 
-        Transaction expenseFood = new Transaction(
-                "Коммунальные услуги", new BigDecimal("0.10"),
-                TransactionType.EXPENSE, date, Category.FOOD
+        Transaction expenseFood = createTransaction(
+                "Продукты", "0.10", TransactionType.EXPENSE,
+                date, Category.FOOD
         );
-        Transaction expenseTransport = new Transaction(
-                "Коммунальные услуги", new BigDecimal("0.11"),
-                TransactionType.EXPENSE, date, Category.TRANSPORT
+        Transaction expenseTransport = createTransaction(
+                "Проезд", "0.11", TransactionType.EXPENSE,
+                date, Category.TRANSPORT
         );
 
-        service.add(expenseTransport);
-        service.add(expenseFood);
+        addTransactions(expenseTransport, expenseFood);
 
         assertEquals(Optional.of(new BigDecimal("0.11")), service.calculateAverageExpense());
     }
 
     @Test
-    void calculateAverageExpenseHandlesNonTerminatingDivision() {
-        TransactionService service = new TransactionService();
+    void shouldCalculateAverageExpenseWhenDivisionIsNonTerminating() {
         LocalDate date = LocalDate.of(2025, 1, 1);
 
-        Transaction expenseFood = new Transaction(
-                "Коммунальные услуги", new BigDecimal("0.10"),
-                TransactionType.EXPENSE, date, Category.FOOD
+        Transaction expenseFood = createTransaction(
+                "Продукты", "0.10", TransactionType.EXPENSE,
+                date, Category.FOOD
         );
-        Transaction expenseTransport = new Transaction(
-                "Коммунальные услуги", new BigDecimal("0.20"),
-                TransactionType.EXPENSE, date, Category.TRANSPORT
+        Transaction expenseTransport = createTransaction(
+                "Проезд", "0.20", TransactionType.EXPENSE,
+                date, Category.TRANSPORT
         );
-        Transaction expenseUtilities = new Transaction(
-                "Коммунальные услуги", new BigDecimal("0.20"),
-                TransactionType.EXPENSE, date, Category.UTILITIES
+        Transaction expenseUtilities = createTransaction(
+                "Коммунальные услуги", "0.20", TransactionType.EXPENSE,
+                date, Category.UTILITIES
         );
 
-        service.add(expenseTransport);
-        service.add(expenseFood);
-        service.add(expenseUtilities);
+        addTransactions(expenseTransport, expenseFood, expenseUtilities);
 
         assertEquals(Optional.of(new BigDecimal("0.17")), service.calculateAverageExpense());
     }
 
     @Test
-    void calculateAverageExpenseReturnsEmptyWhenServiceIsEmpty() {
-        TransactionService service = new TransactionService();
+    void shouldReturnEmptyAverageExpenseWhenNoTransactionsExist() {
+        assertEquals(Optional.empty(), service.calculateAverageExpense());
+    }
+
+    @Test
+    void shouldReturnEmptyAverageExpenseWhenOnlyIncomeExists() {
+        Transaction income = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 1), Category.SALARY
+        );
+
+        service.add(income);
 
         assertEquals(Optional.empty(), service.calculateAverageExpense());
     }
 
-   @Test
-   void calculateAverageExpenseReturnsEmptyWhenOnlyIncomeExists() {
-        TransactionService service = new TransactionService();
-        Transaction income = new Transaction("Salary", new BigDecimal("100.00"),
-                TransactionType.INCOME, LocalDate.of(2025, 1, 1),
-                Category.SALARY);
+    private Transaction createTransaction(
+            String title,
+            String amount,
+            TransactionType type,
+            LocalDate date,
+            Category category
+    ) {
+        return new Transaction(title, new BigDecimal(amount), type, date, category);
+    }
 
-        service.add(income);
-
-       assertEquals(Optional.empty(), service.calculateAverageExpense());
-   }
+    private void addTransactions(Transaction... transactions) {
+        for (Transaction transaction : transactions) {
+            service.add(transaction);
+        }
+    }
 }
