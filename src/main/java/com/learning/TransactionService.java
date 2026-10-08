@@ -9,10 +9,20 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public class TransactionService {
+    public TransactionService(TransactionRepository repository) {
+        if (repository == null) {
+            throw  new IllegalArgumentException("Repository must not be null");
+        }
+        this.repository = repository;
+    }
+
+    public TransactionService() {
+        this(new InMemoryTransactionRepository());
+    }
+    private final TransactionRepository repository;
+
     private static final Predicate<Transaction> IS_EXPENSE =
             t -> t.getType() == TransactionType.EXPENSE;
-
-    private final List<Transaction> transactions = new ArrayList<>();
 
     public void add(Transaction transaction) {
         if (transaction == null) {
@@ -23,15 +33,17 @@ public class TransactionService {
             throw new IllegalArgumentException("Transaction with this ID already exists");
         }
 
-        transactions.add(transaction);
+        repository.save(transaction);
     }
 
     public List<Transaction> findAll() {
-        return List.copyOf(transactions);
+        return repository.findAll();
     }
 
     public BigDecimal calculateBalance() {
         BigDecimal balance = new BigDecimal("0.00");
+        List<Transaction> transactions = repository.findAll();
+
         for (Transaction transaction : transactions) {
             if (!IS_EXPENSE.test(transaction)) {
                 balance = balance.add(transaction.getAmount());
@@ -42,14 +54,7 @@ public class TransactionService {
         return balance;
     }
 
-    public Optional<Transaction> findById(UUID id) {
-        if (id == null) {
-            throw new IllegalArgumentException("ID must not be null");
-        }
-        return transactions.stream()
-                .filter(t -> t.getId().equals(id))
-                .findFirst();
-    }
+    public Optional<Transaction> findById(UUID id) { return repository.findById(id); }
 
     public Transaction getByIdOrThrow(UUID id) {
         return findById(id).orElseThrow(
@@ -58,18 +63,9 @@ public class TransactionService {
     }
 
     public boolean removeById(UUID id) {
-        if (id == null) {
-            throw new IllegalArgumentException("ID must not be null");
-        }
-        Iterator<Transaction> iterator = transactions.iterator();
-
-        while (iterator.hasNext()) {
-            Transaction transaction = iterator.next();
-
-            if (transaction.getId().equals(id)) {
-                iterator.remove();
-                return true;
-            }
+        if (repository.findById(id).isPresent()) {
+            repository.deleteById(id);
+            return true;
         }
         return false;
     }
@@ -78,7 +74,7 @@ public class TransactionService {
         if (category == null) {
             throw new IllegalArgumentException("Category must not be null");
         }
-        return transactions.stream()
+        return repository.findAll().stream()
                 .filter(t -> t.getCategory() == category)
                 .toList();
     }
@@ -91,20 +87,20 @@ public class TransactionService {
             throw new IllegalArgumentException("From date must not be after to date");
         }
 
-        return transactions.stream()
+        return repository.findAll().stream()
                 .filter(t -> !t.getDate().isBefore(from) && !t.getDate().isAfter(to))
                 .toList();
     }
 
     public List<Transaction> sortByDate() {
-       return transactions.stream()
+       return repository.findAll().stream()
                .sorted(Comparator.comparing(Transaction::getDate)
                        .thenComparing(Transaction::getId))
                .toList();
     }
 
     public Map<Category, BigDecimal> expensesByCategory() {
-        return transactions.stream()
+        return repository.findAll().stream()
                 .filter(IS_EXPENSE)
                 .collect(Collectors.toMap(
                         Transaction::getCategory,
@@ -119,7 +115,7 @@ public class TransactionService {
             throw new IllegalArgumentException("Limit must not be negative");
         }
 
-        return transactions.stream()
+        return repository.findAll().stream()
                 .filter(IS_EXPENSE)
                 .sorted(Comparator.comparing(Transaction::getAmount).reversed()
                         .thenComparing(Transaction::getDate)
@@ -129,7 +125,7 @@ public class TransactionService {
     }
 
     public Optional<YearMonth> findMonthWithLargestExpenses() {
-        Map<YearMonth, BigDecimal> expensesByMonth = transactions.stream()
+        Map<YearMonth, BigDecimal> expensesByMonth = repository.findAll().stream()
                 .filter(IS_EXPENSE)
                 .collect(Collectors.groupingBy(
                         t -> YearMonth.from(t.getDate()),
@@ -166,7 +162,7 @@ public class TransactionService {
         int count = 0;
         BigDecimal sum = new BigDecimal("0.00");
 
-        for (Transaction transaction : transactions) {
+        for (Transaction transaction : repository.findAll()) {
             if (IS_EXPENSE.test(transaction)) {
                 sum = sum.add(transaction.getAmount());
                 count ++;

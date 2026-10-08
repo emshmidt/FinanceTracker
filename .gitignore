@@ -27,6 +27,9 @@ dependency-reduced-pom.xml
 .flattened-pom.xml
 .mvn/timing.properties
 
+# Generated local data
+/data/
+
 # Gradle
 .gradle/
 build/

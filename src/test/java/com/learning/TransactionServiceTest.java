@@ -31,6 +31,43 @@ class TransactionServiceTest {
     }
 
     @Test
+    void shouldUseProvidedRepository() {
+        InMemoryTransactionRepository repository = new InMemoryTransactionRepository();
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+        repository.save(salaryIncome);
+
+        TransactionService serviceWithRepository = new TransactionService(repository);
+
+        assertEquals(List.of(salaryIncome), serviceWithRepository.findAll());
+    }
+
+    @Test
+    void shouldSaveTransactionToProvidedRepository() {
+        InMemoryTransactionRepository repository = new InMemoryTransactionRepository();
+
+        TransactionService serviceWithRepository = new TransactionService(repository);
+        Transaction salaryIncome = createTransaction(
+                "Зарплата", "100.00", TransactionType.INCOME,
+                LocalDate.of(2025, 1, 15), Category.SALARY
+        );
+
+        serviceWithRepository.add(salaryIncome);
+
+        assertEquals(List.of(salaryIncome), repository.findAll());
+    }
+
+    @Test
+    void shouldRejectNullRepository() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new TransactionService(null)
+        );
+    }
+
+    @Test
     void shouldCalculateBalanceFromIncomeAndExpenses() {
         Transaction salaryIncome = createTransaction(
                 "Зарплата", "100.00", TransactionType.INCOME,

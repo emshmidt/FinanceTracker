@@ -14,6 +14,19 @@ public class Transaction {
 
 
     public Transaction(String title, BigDecimal amount, TransactionType type, LocalDate date, Category category) {
+        this(UUID.randomUUID(), title, amount, type, date, category);
+    }
+    private Transaction(
+            UUID id,
+            String title,
+            BigDecimal amount,
+            TransactionType type,
+            LocalDate date,
+            Category category
+    ) {
+        if (id == null) {
+            throw new InvalidTransactionException("Id must not be null");
+        }
         if (title == null || title.isBlank()){
             throw new InvalidTransactionException("Title must not be null or blank");
         }
@@ -36,12 +49,23 @@ public class Transaction {
             throw new InvalidTransactionException("Category must not be null");
         }
 
-        this.id = UUID.randomUUID();
+        this.id = id;
         this.title = title;
         this.amount = amount.setScale(2);
         this.type = type;
         this.date = date;
         this.category = category;
+    }
+
+    public static Transaction restore(
+            UUID id,
+            String title,
+            BigDecimal amount,
+            TransactionType type,
+            LocalDate date,
+            Category category
+    ) {
+        return new Transaction(id, title, amount, type, date, category);
     }
 
     public UUID getId() {
