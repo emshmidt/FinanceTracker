@@ -9,8 +9,22 @@ import java.util.List;
 //TIP To <b>Run</b> code, press <shortcut actionId="Run"/> or
 // click the <icon src="AllIcons.Actions.Execute"/> icon in the gutter.
 public class Main {
+    static Path resolveStoragePath(String[] args) {
+        if (args.length > 1) {
+            throw new IllegalArgumentException(
+                    "Expected at most one argument: storage path"
+            );
+        }
+
+        if (args.length == 0 || args[0].isBlank()) {
+            return Path.of("data", "transactions.csv");
+        }
+
+        return Path.of(args[0]);
+    }
+
     public static void main(String[] args) {
-        Path storagePath = Path.of("data", "transactions.csv");
+        Path storagePath = resolveStoragePath(args);
         FileTransactionRepository fileRepository = new FileTransactionRepository(storagePath);
 
         TransactionService service = new TransactionService(fileRepository);
