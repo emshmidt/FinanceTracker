@@ -81,7 +81,10 @@ public class FileTransactionRepositoryTest {
                 "Продукты", new BigDecimal("100.00"), TransactionType.EXPENSE,
                 LocalDate.of(2025, 1, 15), Category.FOOD
         );
+
+        assertFalse(Files.exists(file));
         repository.save(transaction);
+        assertTrue(Files.exists(file));
 
         FileTransactionRepository loadedRepository =
                 new FileTransactionRepository(file);

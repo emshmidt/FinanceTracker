@@ -1,10 +1,14 @@
 package com.learning;
 
 import java.io.IOException;
+import java.io.PrintStream;
+import java.io.UncheckedIOException;
 import java.math.BigDecimal;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Scanner;
 
 //TIP To <b>Run</b> code, press <shortcut actionId="Run"/> or
 // click the <icon src="AllIcons.Actions.Execute"/> icon in the gutter.
@@ -24,48 +28,67 @@ public class Main {
     }
 
     public static void main(String[] args) {
-        Path storagePath = resolveStoragePath(args);
-        FileTransactionRepository fileRepository = new FileTransactionRepository(storagePath);
+        int status = run(
+                args,
+                new Scanner(System.in),
+                System.out,
+                System.err
+        );
 
-        TransactionService service = new TransactionService(fileRepository);
-
-        List<Transaction> transactions = service.findAll();
-        TransactionFormatter formatter = new ConsoleTransactionFormatter();
-
-        for (Transaction transaction: transactions) {
-            String text = formatter.format(transaction);
-
-            System.out.println(text);
+        if (status != 0) {
+            System.exit(status);
         }
 
-        System.out.println("Баланс: " + service.calculateBalance());
-        System.out.println("Расходы по категориям: " + service.expensesByCategory());
-        System.out.println(
-                "Самый затратный месяц: "
-                        + service.findMonthWithLargestExpenses()
-                        .map(month -> month.toString())
-                        .orElse("Нет расходов")
-        );
+    }
+    static int run(
+            String[] args,
+            Scanner input,
+            PrintStream output,
+            PrintStream error
+    ) {
+        Path storagePath;
+        try {
+            storagePath = resolveStoragePath(args);
+        } catch (InvalidPathException e) {
+            error.println(
+                    "Недопустимый путь: " + e.getInput()
+                            + ". Причина: " + e.getReason()
+            );
+            return 1;
+        } catch (IllegalArgumentException e) {
+            error.println(
+                    "Ошибка аргументов: " + e.getMessage()
+                            + ". Передайте не более одного аргумента — путь к CSV."
+            );
+            return 1;
+        }
+        FileTransactionRepository fileRepository;
+        try {
+            fileRepository = new FileTransactionRepository(storagePath);
+        } catch(IllegalArgumentException e) {
+            error.println(
+                    "Ошибка в данных файла: " + e.getLocalizedMessage()
+                    + ". Путь к файлу: " + storagePath
+            );
+            return 1;
+        } catch (UncheckedIOException e) {
+            error.println(
+                    "Не удалось загрузить операции из " + storagePath
+                            + ". Причина: " + e.getCause().getMessage()
+            );
+            return 1;
+        }
 
-        System.out.println(
-                "Самая затратная категория: "
-                        + service.findMostExpensiveCategory()
-                        .map(category -> category.name())
-                        .orElse("Нет расходов")
-        );
 
-        System.out.println(
-                "Средний расход: "
-                        + service.calculateAverageExpense()
-                        .map(amount -> amount.toPlainString())
-                        .orElse("Нет расходов")
+
+        TransactionService service = new TransactionService(fileRepository);
+        TransactionFormatter formatter = new ConsoleTransactionFormatter();
+
+        ConsoleApplication application = new ConsoleApplication(
+                service, formatter, input, output, storagePath, error
         );
-        System.out.println(
-                "Два крупнейших расхода: "
-                        + service.findLargestExpenses(2).stream()
-                        .map(Transaction::getAmount)
-                        .toList()
-        );
+        application.run();
+        return 0;
     }
 
     private void createTransactions(TransactionService service) {
