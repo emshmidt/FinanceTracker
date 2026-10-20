@@ -1,4 +1,9 @@
-package com.learning;
+package com.learning.practice;
+
+import com.learning.Category;
+import com.learning.Transaction;
+import com.learning.TransactionFormatter;
+import com.learning.TransactionType;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;

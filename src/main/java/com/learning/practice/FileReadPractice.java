@@ -1,4 +1,4 @@
-package com.learning;
+package com.learning.practice;
 
 import java.io.BufferedReader;
 import java.io.IOException;

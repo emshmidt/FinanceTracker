@@ -1,6 +1,8 @@
-package com.learning;
+package com.learning.practice;
 
-import com.sun.source.tree.Tree;
+import com.learning.Category;
+import com.learning.Transaction;
+import com.learning.TransactionType;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
